@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salesforce データ集計ツール</title>
+<style>
+  :root { color-scheme: light; }
+  .viz-root {
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --series-3:       #1baf7a;
+    --series-4:       #eda100;
+    --series-5:       #e87ba4;
+    --series-6:       #008300;
+    --series-7:       #4a3aa7;
+    --series-8:       #e34948;
+    --status-good:    #0ca30c;
+    --status-warning: #fab219;
+    --status-critical:#d03b3b;
+    --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec;
+    --seq-400: #3987e5; --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page:#0d0d0d;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --baseline:#383835; --border: rgba(255,255,255,0.10);
+      --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+      --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --page:#0d0d0d;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border: rgba(255,255,255,0.10);
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+    --series-5:#d55181; --series-6:#008300; --series-7:#9085e9; --series-8:#e66767;
+  }
+  * { box-sizing: border-box; }
+  html,body { margin:0; padding:0; }
+  body.viz-root {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 24px;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  header.app-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:12px; flex-wrap:wrap;}
+  header.app-header h1 { font-size: 20px; margin:0; }
+  header.app-header p.sub { color: var(--text-secondary); margin: 4px 0 0; font-size: 13px; }
+  .theme-toggle, .btn {
+    font: inherit; cursor:pointer; border-radius:8px; border:1px solid var(--border);
+    background: var(--surface-1); color: var(--text-primary); padding:8px 14px;
+  }
+  .btn:hover, .theme-toggle:hover { background: color-mix(in oklab, var(--surface-1) 85%, var(--text-primary) 15%); }
+  .btn.primary { background: var(--series-1); color:#fff; border-color: var(--series-1); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.small { padding:4px 10px; font-size:12px; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+
+  .card { background: var(--surface-1); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:14px; margin:0 0 12px; color: var(--text-primary); }
+  .card h2 .count { color: var(--text-muted); font-weight:400; }
+
+  #dropzone {
+    border: 2px dashed var(--baseline); border-radius:12px; padding: 40px 20px; text-align:center;
+    color: var(--text-secondary); cursor:pointer; transition: background .15s, border-color .15s;
+  }
+  #dropzone.drag { background: color-mix(in oklab, var(--series-1) 8%, var(--surface-1) 92%); border-color: var(--series-1); }
+  #dropzone strong { color: var(--text-primary); }
+  #dropzone .hint { font-size:12px; color: var(--text-muted); margin-top:6px; }
+
+  .stat-row { display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; }
+  .stat-tile { background: var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .stat-tile .label { font-size:12px; color: var(--text-secondary); margin-bottom:4px; }
+  .stat-tile .value { font-size:24px; font-weight:600; color: var(--text-primary); }
+
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom: 4px;}
+  select, input[type=text], input[type=number], input[type=date] {
+    font: inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--border);
+    background: var(--page); color: var(--text-primary); min-width: 0;
+  }
+  label.field-label { font-size:12px; color: var(--text-secondary); display:block; margin-bottom:3px; }
+
+  .filter-row { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; background: var(--page); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .filter-row .field { min-width:150px; flex: 1 1 150px; }
+  .filter-row .remove-btn { color: var(--status-critical); background:none; border:none; cursor:pointer; font-size:18px; line-height:1; padding:4px 8px; }
+  .filter-row .checklist { max-height:140px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:6px 8px; background: var(--surface-1); min-width:200px; }
+  .filter-row .checklist label { display:flex; gap:6px; align-items:center; font-size:12.5px; padding:2px 0; white-space:nowrap; }
+
+  table.data-table { border-collapse: collapse; width:100%; font-size:13px; }
+  table.data-table th, table.data-table td { border-bottom: 1px solid var(--grid); padding:7px 10px; text-align:left; white-space:nowrap; max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+  table.data-table thead th { color: var(--text-secondary); font-weight:600; position: sticky; top:0; background: var(--surface-1); cursor:pointer; user-select:none; }
+  table.data-table thead th:hover { color: var(--text-primary); }
+  table.data-table tbody tr:hover { background: var(--page); }
+  .table-scroll { overflow:auto; max-height: 420px; border:1px solid var(--border); border-radius:10px; }
+  .table-scroll.short { max-height: none; }
+
+  .bars { display:flex; flex-direction:column; gap:2px; }
+  .bar-row { display:grid; grid-template-columns: 200px 1fr 90px; align-items:center; gap:10px; }
+  .bar-row .bar-label { font-size:12.5px; color: var(--text-secondary); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar-row .bar-track { position:relative; height:20px; background: var(--grid); border-radius:4px; }
+  .bar-row .bar-fill { position:absolute; left:0; top:0; height:100%; background: var(--series-1); border-radius:4px; min-width:4px; outline-offset:2px; }
+  .bar-row .bar-fill:hover, .bar-row .bar-fill:focus { filter: brightness(1.12); outline: 2px solid var(--series-1); }
+  .bar-row .bar-value { font-size:12.5px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .chart-tooltip { position:fixed; pointer-events:none; background: var(--text-primary); color: var(--surface-1); padding:6px 10px; border-radius:6px; font-size:12px; z-index:1000; transform: translate(-50%,-130%); white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.2); }
+  .chart-tooltip .v { font-weight:700; font-variant-numeric: tabular-nums;}
+
+  .pivot-table td.cell { text-align:right; font-variant-numeric: tabular-nums; }
+  .empty-state { text-align:center; color: var(--text-muted); padding: 30px 10px; font-size:13px; }
+  .hidden { display:none !important; }
+  .row-count-note { font-size:12px; color: var(--text-muted); margin-top:8px; }
+  .privacy-note { font-size:12px; color: var(--text-secondary); background: var(--page); border:1px solid var(--border); border-radius:8px; padding:8px 12px; margin-top:10px; }
+  .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } .bar-row{grid-template-columns: 110px 1fr 70px;} }
+  footer.app-footer { text-align:center; color: var(--text-muted); font-size:12px; margin-top: 30px; }
+</style>
+</head>
+<body class="viz-root">
+<div class="wrap">
+
+  <header class="app-header">
+    <div>
+      <h1>Salesforce データ集計ツール</h1>
+      <p class="sub">CSVエクスポートしたデータをアップロードして、絞り込み・集計・可視化ができます。データはこのブラウザ内だけで処理され、外部には送信されません。</p>
+    </div>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="表示テーマ切り替え">🌓 表示切替</button>
+  </header>
+
+  <div class="card" id="uploadCard">
+    <h2>1. CSVファイルをアップロード</h2>
+    <div id="dropzone" tabindex="0" role="button" aria-label="CSVまたはExcelファイルをアップロード">
+      <div><strong>ここにファイルをドラッグ&ドロップ</strong>、またはクリックして選択</div>
+      <div class="hint">Salesforceのレポート／リストビューからエクスポートしたCSV・Excel(.xlsx)に対応しています</div>
+    </div>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
+    <div class="toolbar" style="margin-top:12px;">
+      <div id="encodingWrap">
+        <label class="field-label">文字コード（CSVのみ）</label>
+        <select id="encodingSelect">
+          <option value="utf-8">UTF-8（標準）</option>
+          <option value="shift-jis">Shift-JIS（文字化けする場合）</option>
+        </select>
+      </div>
+      <div id="fileMeta" style="color:var(--text-secondary); font-size:12.5px;"></div>
+      <button class="btn small" id="resetBtn" type="button" style="margin-left:auto;">クリア</button>
+    </div>
+  </div>
+
+  <div id="appBody" class="hidden">
+
+    <div class="card">
+      <h2>2. 概要</h2>
+      <div class="stat-row" id="statRow"></div>
+    </div>
+
+    <div class="card">
+      <h2>3. 絞り込み（フィルター）</h2>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <div style="flex:1; min-width:220px;">
+          <label class="field-label">全項目からキーワード検索</label>
+          <input type="text" id="quickSearch" placeholder="例：会社名、氏名、ステータスなど" style="width:100%;">
+        </div>
+        <button class="btn small" id="addFilterBtn" type="button" style="align-self:flex-end;">＋ 条件を追加</button>
+      </div>
+      <div class="toolbar" id="filterLogicWrap" style="margin-bottom:10px; display:none;">
+        <div>
+          <label class="field-label">条件の組み合わせ</label>
+          <select id="filterLogicSelect">
+            <option value="AND">すべての条件に一致（AND）</option>
+            <option value="OR">いずれかの条件に一致（OR）</option>
+          </select>
+        </div>
+      </div>
+      <div id="filterList"></div>
+      <div class="row-count-note" id="filterSummary"></div>
+    </div>
+
+    <div class="card">
+      <h2>4. 集計</h2>
+      <div class="toolbar">
+        <div>
+          <label class="field-label">表示する項目（行）</label>
+          <select id="groupByCol"></select>
+        </div>
+        <div style="flex-basis:100%;">
+          <label class="field-label">内訳（列・任意）</label>
+          <select id="breakdownCol"><option value="">なし</option></select>
+        </div>
+        <div>
+          <label class="field-label">集計値</label>
+          <select id="aggFunc">
+            <option value="count">件数</option>
+            <option value="sum">合計</option>
+            <option value="avg">平均</option>
+            <option value="max">最大</option>
+            <option value="min">最小</option>
+            <option value="uniq">ユニーク数</option>
+          </select>
+        </div>
+        <div id="aggColWrap">
+          <label class="field-label">対象の数値項目</label>
+          <select id="aggCol"></select>
+        </div>
+        <button class="btn primary" id="runAggBtn" type="button" style="align-self:flex-end;">集計する</button>
+        <button class="btn small" id="exportAggBtn" type="button" style="align-self:flex-end;">結果をCSV出力</button>
+      </div>
+      <div id="aggResults" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>5. データ一覧 <span class="count" id="tableCountLabel"></span></h2>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <button class="btn small" id="exportFilteredBtn" type="button">絞り込み結果をCSV出力</button>
+        <span style="color:var(--text-muted); font-size:12px;">列見出しをクリックすると並び替えできます</span>
+      </div>
+      <div class="table-scroll" id="tableScroll"></div>
+      <div class="toolbar" style="margin-top:10px; justify-content:center;">
+        <button class="btn small" id="loadMoreBtn" type="button">さらに表示</button>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="app-footer">アップロードしたデータはサーバーに送信されず、このブラウザのタブを閉じると破棄されます。</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- State ----------
+  var state = {
+    headers: [], rows: [], colTypes: {}, colUniques: {},
+    filters: [], quickSearch: "", filterLogic: "AND",
+    sortCol: null, sortDir: 1,
+    pageSize: 50, shownRows: 50,
+    rawBuffer: null,
+    aggResult: null
+  };
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  // ---------- Theme toggle ----------
+  $('themeToggle').addEventListener('click', function(){
+    var root = document.documentElement;
+    var cur = root.getAttribute('data-theme');
+    if (cur === 'dark') root.setAttribute('data-theme','light');
+    else if (cur === 'light') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme','dark');
+  });
+
+  // ---------- CSV parsing (RFC4180-ish, handles quotes/commas/newlines) ----------
+  function parseCSV(text){
+    var rows = [];
+    var row = [];
+    var field = '';
+    var inQuotes = false;
+    var i = 0, len = text.length;
+    // strip BOM
+    if (text.charCodeAt(0) === 0xFEFF) { text = text.slice(1); len = text.length; }
+    while (i < len) {
+      var c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i+1] === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        } else { field += c; i++; continue; }
+      } else {
+        if (c === '"') { inQuotes = true; i++; continue; }
+        if (c === ',') { row.push(field); field=''; i++; continue; }
+        if (c === '\r') { i++; continue; }
+        if (c === '\n') { row.push(field); rows.push(row); row=[]; field=''; i++; continue; }
+        field += c; i++; continue;
+      }
+    }
+    if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+    // drop fully-empty trailing rows
+    while (rows.length && rows[rows.length-1].every(function(v){return v==='';})) rows.pop();
+    return rows;
+  }
+
+  function decodeBuffer(buf, encoding){
+    try {
+      var label = encoding === 'shift-jis' ? 'shift_jis' : 'utf-8';
+      var dec = new TextDecoder(label, {fatal:false});
+      return dec.decode(buf);
+    } catch(e){
+      return new TextDecoder('utf-8', {fatal:false}).decode(buf);
+    }
+  }
+
+  // ---------- Type detection ----------
+  function looksNumber(v){
+    if (v === '' || v == null) return false;
+    var s = String(v).trim().replace(/,/g,'').replace(/^¥|円$|%$/g,'');
+    if (s === '') return false;
+    return !isNaN(s) && isFinite(s);
+  }
+  function toNumber(v){
+    var s = String(v).trim().replace(/,/g,'').replace(/^¥|円$|%$/g,'');
+    return parseFloat(s);
+  }
+  var datePatterns = [
+    /^\d{4}-\d{1,2}-\d{1,2}/, /^\d{4}\/\d{1,2}\/\d{1,2}/, /^\d{1,2}\/\d{1,2}\/\d{4}/
+  ];
+  function looksDate(v){
+    if (!v) return false;
+    var s = String(v).trim();
+    for (var i=0;i<datePatterns.length;i++){ if (datePatterns[i].test(s)) return !isNaN(Date.parse(s)); }
+    return false;
+  }
+
+  function detectTypes(headers, rows){
+    var types = {}, uniques = {};
+    headers.forEach(function(h, idx){
+      var sample = [];
+      for (var r=0; r<rows.length && sample.length < 300; r++){
+        var v = rows[r][idx];
+        if (v !== undefined && v !== '') sample.push(v);
+      }
+      var uniqSet = {};
+      var numCount=0, dateCount=0;
+      sample.forEach(function(v){
+        uniqSet[v] = true;
+        if (looksNumber(v)) numCount++;
+        if (looksDate(v)) dateCount++;
+      });
+      var n = sample.length || 1;
+      var uniqCount = Object.keys(uniqSet).length;
+      var type = 'text';
+      if (numCount/n > 0.9) type = 'number';
+      else if (dateCount/n > 0.9) type = 'date';
+      else if (uniqCount <= 60 && uniqCount / n <= 0.6) type = 'category';
+      types[h] = type;
+      // full unique values (for category filter UI) computed from full column later if needed
+      uniques[h] = uniqCount;
+    });
+    return {types: types, uniques: uniques};
+  }
+
+  function columnUniqueValues(header){
+    var set = {};
+    state.rows.forEach(function(r){ var v = r[header]; if (v !== '' && v != null) set[v] = (set[v]||0)+1; });
+    return Object.keys(set).sort(function(a,b){ return set[b]-set[a]; }).map(function(k){return {value:k, count:set[k]};});
+  }
+
+  // ---------- File handling ----------
+  var dropzone = $('dropzone'), fileInput = $('fileInput');
+  dropzone.addEventListener('click', function(){ fileInput.click(); });
+  dropzone.addEventListener('keydown', function(e){ if (e.key==='Enter' || e.key===' ') fileInput.click(); });
+  ['dragenter','dragover'].forEach(function(ev){
+    dropzone.addEventListener(ev, function(e){ e.preventDefault(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    dropzone.addEventListener(ev, function(e){ e.preventDefault(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', function(e){
+    var f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', function(e){
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+  $('encodingSelect').addEventListener('change', function(){
+    if (state.rawBuffer && state.fileType === 'csv') loadFromBuffer(state.rawBuffer, state.fileName);
+  });
+  $('resetBtn').addEventListener('click', function(){
+    state = { headers:[], rows:[], colTypes:{}, colUniques:{}, filters:[], quickSearch:'', filterLogic:'AND', sortCol:null, sortDir:1, pageSize:50, shownRows:50, rawBuffer:null, aggResult:null, fileType:null };
+    $('appBody').classList.add('hidden');
+    $('fileMeta').textContent = '';
+    $('encodingWrap').style.display = '';
+    $('filterLogicSelect').value = 'AND';
+    $('filterLogicWrap').style.display = 'none';
+    fileInput.value = '';
+  });
+
+  function handleFile(file){
+    state.fileName = file.name;
+    var ext = (file.name.split('.').pop() || '').toLowerCase();
+    var reader = new FileReader();
+    if (ext === 'xlsx') {
+      $('encodingWrap').style.display = 'none';
+      reader.onload = function(e){
+        state.rawBuffer = e.target.result;
+        state.fileType = 'xlsx';
+        loadXLSXAndRender(state.rawBuffer, file.name);
+      };
+      reader.readAsArrayBuffer(file);
+    } else if (ext === 'csv' || ext === 'txt') {
+      $('encodingWrap').style.display = '';
+      reader.onload = function(e){
+        state.rawBuffer = e.target.result;
+        state.fileType = 'csv';
+        loadFromBuffer(state.rawBuffer, file.name);
+      };
+      reader.readAsArrayBuffer(file);
+    } else if (ext === 'xls') {
+      alert('古い形式の .xls ファイルには対応していません。Excelで開いて「.xlsx」または「CSV」として保存し直してからアップロードしてください。');
+    } else {
+      alert('対応していないファイル形式です。CSVまたはExcel(.xlsx)ファイルをアップロードしてください。');
+    }
+  }
+
+  function loadFromBuffer(buf, name){
+    var encoding = $('encodingSelect').value;
+    var text = decodeBuffer(buf, encoding);
+    var table = parseCSV(text);
+    if (!table.length) { $('fileMeta').textContent = 'データを読み取れませんでした。'; return; }
+    applyTableToState(table, name);
+  }
+
+  async function loadXLSXAndRender(buf, name){
+    $('fileMeta').textContent = '読み込み中…';
+    try {
+      if (typeof DecompressionStream === 'undefined') {
+        $('fileMeta').textContent = 'このブラウザはExcelファイルの読み込みに対応していません。お手数ですがCSV形式で保存し直してアップロードしてください。';
+        return;
+      }
+      var result = await loadXLSXFile(buf);
+      if (!result.table.length) { $('fileMeta').textContent = 'データを読み取れませんでした。シート構成をご確認ください。'; return; }
+      applyTableToState(result.table, name);
+    } catch (err) {
+      console.error(err);
+      $('fileMeta').textContent = 'Excelファイルの読み込みに失敗しました（' + err.message + '）。ファイルが破損していないか、CSVでの読み込みをお試しください。';
+    }
+  }
+
+  function applyTableToState(table, name){
+    table = realignSalesforceExport(table);
+    if (!table.length) { $('fileMeta').textContent = 'データを読み取れませんでした。'; return; }
+    var headers = table[0].map(function(h){ return String(h == null ? '' : h).trim(); });
+    var bodyRows = table.slice(1);
+    var dataRows = bodyRows.map(function(r){
+      var obj = {};
+      headers.forEach(function(h, i){ obj[h] = r[i] !== undefined ? r[i] : ''; });
+      return obj;
+    });
+    state.headers = headers;
+    state.rows = dataRows;
+    var det = detectTypes(headers, bodyRows);
+    state.colTypes = det.types;
+    state.filters = [];
+    state.quickSearch = '';
+    state.filterLogic = 'AND';
+    $('quickSearch').value = '';
+    $('filterLogicSelect').value = 'AND';
+    $('filterLogicWrap').style.display = 'none';
+    state.shownRows = state.pageSize;
+
+    $('fileMeta').textContent = name + '　/　' + dataRows.length.toLocaleString() + ' 行　/　' + headers.length + ' 列';
+    $('appBody').classList.remove('hidden');
+
+    populateColumnSelects();
+    renderFilterList();
+    renderAll();
+  }
+
+  // ---------- Salesforce export cleanup ----------
+  // Salesforce report/list-view exports sometimes wrap header text with sort
+  // metadata (e.g. "並び替え:◆取引先並び替え: なし") and insert an unlabeled
+  // "row select" column ("項目を選択 1", "項目を選択 2", ...) that shifts the
+  // real data columns to the right of the header row. This cleans header text
+  // and, when the shift pattern is detected, realigns data to the headers.
+  function cleanHeaderText(raw){
+    var s = String(raw == null ? '' : raw);
+    s = s.replace(/^並び替え[:：]◆?/, '');
+    s = s.replace(/並び替え[:：]\s*(なし)?\s*$/, '');
+    s = s.replace(/(降順|昇順)に並び替え済み\s*$/, '');
+    s = s.replace(/^◆/, '');
+    return s.trim();
+  }
+
+  function realignSalesforceExport(table){
+    if (!table.length) return table;
+    var header = table[0];
+    var dataRows = table.slice(1);
+    var maxCol = header.length;
+    dataRows.forEach(function(r){ if (r.length > maxCol) maxCol = r.length; });
+    var headerPadded = header.slice();
+    while (headerPadded.length < maxCol) headerPadded.push('');
+
+    var cleanedHeaders = headerPadded.map(cleanHeaderText);
+    var headerNonEmptyIdx = [];
+    cleanedHeaders.forEach(function(h, i){ if (h !== '') headerNonEmptyIdx.push(i); });
+
+    var noiseIdx = {};
+    for (var c = 0; c < maxCol; c++){
+      var sawAny = false, allBlank = true, allSelector = true;
+      for (var r = 0; r < dataRows.length; r++){
+        var v = dataRows[r][c];
+        if (v === undefined || v === '') continue;
+        sawAny = true; allBlank = false;
+        if (!/^項目を選択\s*\d*$/.test(String(v).trim())) allSelector = false;
+      }
+      if (!sawAny || allBlank || allSelector) noiseIdx[c] = true;
+    }
+    var keepIdx = [];
+    for (var c2 = 0; c2 < maxCol; c2++){ if (!noiseIdx[c2]) keepIdx.push(c2); }
+
+    if (Object.keys(noiseIdx).length > 0 && headerNonEmptyIdx.length === keepIdx.length && headerNonEmptyIdx.length > 0) {
+      var newHeader = headerNonEmptyIdx.map(function(i){ return cleanedHeaders[i]; });
+      var newRows = dataRows.map(function(r){
+        return keepIdx.map(function(i){ return r[i] !== undefined ? r[i] : ''; });
+      });
+      return [newHeader].concat(newRows);
+    }
+    var fallbackHeader = headerPadded.map(cleanHeaderText).map(function(h, i){ return h || ('列' + (i + 1)); });
+    return [fallbackHeader].concat(dataRows);
+  }
+
+  // ---------- Minimal XLSX reader (pure browser APIs, no external libraries) ----------
+  function colLetterToIndex(ref){
+    var m = ref.match(/^([A-Z]+)(\d+)$/);
+    if (!m) return 0;
+    var letters = m[1], n = 0;
+    for (var i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+    return n - 1;
+  }
+
+  async function unzip(buf){
+    var view = new DataView(buf);
+    var bytes = new Uint8Array(buf);
+    var eocd = -1;
+    var scanStart = Math.max(0, bytes.length - 22 - 65557);
+    for (var i = bytes.length - 22; i >= scanStart; i--){
+      if (view.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+    }
+    if (eocd === -1) throw new Error('ZIPファイルとして読み取れませんでした');
+    var cdOffset = view.getUint32(eocd + 16, true);
+    var cdEntries = view.getUint16(eocd + 10, true);
+    var entries = {};
+    var p = cdOffset;
+    for (var e = 0; e < cdEntries; e++){
+      var sig = view.getUint32(p, true);
+      if (sig !== 0x02014b50) break;
+      var compMethod = view.getUint16(p + 10, true);
+      var compSize = view.getUint32(p + 20, true);
+      var nameLen = view.getUint16(p + 28, true);
+      var extraLen = view.getUint16(p + 30, true);
+      var commentLen = view.getUint16(p + 32, true);
+      var localHeaderOffset = view.getUint32(p + 42, true);
+      var nameBytes = bytes.subarray(p + 46, p + 46 + nameLen);
+      var name = new TextDecoder('utf-8').decode(nameBytes);
+      entries[name] = { compMethod: compMethod, compSize: compSize, localHeaderOffset: localHeaderOffset };
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    async function readEntry(name){
+      var meta = entries[name];
+      if (!meta) return null;
+      var lp = meta.localHeaderOffset;
+      var lNameLen = view.getUint16(lp + 26, true);
+      var lExtraLen = view.getUint16(lp + 28, true);
+      var dataStart = lp + 30 + lNameLen + lExtraLen;
+      var compData = bytes.subarray(dataStart, dataStart + meta.compSize);
+      var outBytes;
+      if (meta.compMethod === 0) {
+        outBytes = compData;
+      } else if (meta.compMethod === 8) {
+        var ds = new DecompressionStream('deflate-raw');
+        var stream = new Blob([compData]).stream().pipeThrough(ds);
+        var ab = await new Response(stream).arrayBuffer();
+        outBytes = new Uint8Array(ab);
+      } else {
+        throw new Error('未対応の圧縮形式です');
+      }
+      return new TextDecoder('utf-8').decode(outBytes);
+    }
+    return { entries: entries, readEntry: readEntry };
+  }
+
+  function parseSharedStrings(xml){
+    if (!xml) return [];
+    var doc = new DOMParser().parseFromString(xml, 'application/xml');
+    var sis = doc.getElementsByTagName('si');
+    var arr = [];
+    for (var i = 0; i < sis.length; i++){
+      var ts = sis[i].getElementsByTagName('t');
+      var text = '';
+      for (var j = 0; j < ts.length; j++) text += ts[j].textContent;
+      arr.push(text);
+    }
+    return arr;
+  }
+
+  var BUILTIN_DATE_FMT_IDS = {14:1,15:1,16:1,17:1,18:1,19:1,20:1,21:1,22:1,45:1,46:1,47:1};
+  function parseStyles(xml){
+    var result = { numFmts: {}, cellXfNumFmtIds: [] };
+    if (!xml) return result;
+    var doc = new DOMParser().parseFromString(xml, 'application/xml');
+    var numFmts = doc.getElementsByTagName('numFmt');
+    for (var i = 0; i < numFmts.length; i++){
+      result.numFmts[numFmts[i].getAttribute('numFmtId')] = numFmts[i].getAttribute('formatCode');
+    }
+    var cellXfsParent = doc.getElementsByTagName('cellXfs')[0];
+    if (cellXfsParent){
+      var xfs = cellXfsParent.getElementsByTagName('xf');
+      for (var k = 0; k < xfs.length; k++) result.cellXfNumFmtIds.push(parseInt(xfs[k].getAttribute('numFmtId') || '0', 10));
+    }
+    return result;
+  }
+  function isDateFormat(numFmtId, styles){
+    if (BUILTIN_DATE_FMT_IDS[numFmtId]) return true;
+    var code = styles.numFmts[numFmtId];
+    if (!code) return false;
+    if (/general|^@$/i.test(code)) return false;
+    return /[ymdhs]/i.test(code.replace(/\[[^\]]*\]/g, ''));
+  }
+  function excelSerialToDate(serial){
+    var utcDays = Math.floor(serial - 25569);
+    var dateInfo = new Date(utcDays * 86400 * 1000);
+    var fractionalDay = serial - Math.floor(serial);
+    var totalSeconds = Math.round(fractionalDay * 86400);
+    var seconds = totalSeconds % 60; totalSeconds = Math.floor(totalSeconds / 60);
+    var minutes = totalSeconds % 60; var hours = Math.floor(totalSeconds / 60);
+    return new Date(dateInfo.getUTCFullYear(), dateInfo.getUTCMonth(), dateInfo.getUTCDate(), hours, minutes, seconds);
+  }
+  function formatDateForCell(d, hasTime){
+    function p(n){ return String(n).padStart(2, '0'); }
+    var s = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    if (hasTime) s += ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    return s;
+  }
+
+  function parseSheetXML(xml, sharedStrings, styles){
+    var doc = new DOMParser().parseFromString(xml, 'application/xml');
+    var rowsEl = doc.getElementsByTagName('row');
+    var table = [];
+    var maxCol = 0;
+    for (var i = 0; i < rowsEl.length; i++){
+      var rEl = rowsEl[i];
+      var rowNum = parseInt(rEl.getAttribute('r') || (i + 1), 10);
+      var cells = rEl.getElementsByTagName('c');
+      var rowArr = [];
+      for (var j = 0; j < cells.length; j++){
+        var c = cells[j];
+        var ref = c.getAttribute('r');
+        var idx = ref ? colLetterToIndex(ref) : j;
+        var t = c.getAttribute('t');
+        var sAttr = c.getAttribute('s');
+        var sIdx = sAttr ? parseInt(sAttr, 10) : 0;
+        var vEl = c.getElementsByTagName('v')[0];
+        var value = '';
+        if (t === 's') {
+          var si = vEl ? parseInt(vEl.textContent, 10) : -1;
+          value = sharedStrings[si] !== undefined ? sharedStrings[si] : '';
+        } else if (t === 'str') {
+          value = vEl ? vEl.textContent : '';
+        } else if (t === 'inlineStr') {
+          var isEl = c.getElementsByTagName('is')[0];
+          value = isEl ? isEl.textContent : '';
+        } else if (t === 'b') {
+          value = (vEl && vEl.textContent === '1') ? 'TRUE' : 'FALSE';
+        } else {
+          var raw = vEl ? vEl.textContent : '';
+          if (raw === '') {
+            value = '';
+          } else {
+            var num = parseFloat(raw);
+            var numFmtId = styles.cellXfNumFmtIds[sIdx] || 0;
+            if (!isNaN(num) && isDateFormat(numFmtId, styles)) {
+              var d = excelSerialToDate(num);
+              var code = styles.numFmts[numFmtId] || '';
+              var hasTime = numFmtId >= 18 || /[hs]/i.test(code);
+              value = formatDateForCell(d, hasTime);
+            } else {
+              value = raw;
+            }
+          }
+        }
+        rowArr[idx] = value;
+        if (idx + 1 > maxCol) maxCol = idx + 1;
+      }
+      table[rowNum - 1] = rowArr;
+    }
+    var out = [];
+    for (var r2 = 0; r2 < table.length; r2++){
+      var rowArr2 = table[r2] || [];
+      var padded = [];
+      for (var ci = 0; ci < maxCol; ci++) padded.push(rowArr2[ci] !== undefined && rowArr2[ci] !== null ? String(rowArr2[ci]) : '');
+      out.push(padded);
+    }
+    while (out.length && out[out.length - 1].every(function(v){ return v === ''; })) out.pop();
+    return out;
+  }
+
+  function parseWorkbookSheets(workbookXml, relsXml){
+    var doc = new DOMParser().parseFromString(workbookXml, 'application/xml');
+    var sheetEls = doc.getElementsByTagName('sheet');
+    var relMap = {};
+    if (relsXml){
+      var relsDoc = new DOMParser().parseFromString(relsXml, 'application/xml');
+      var rels = relsDoc.getElementsByTagName('Relationship');
+      for (var i = 0; i < rels.length; i++) relMap[rels[i].getAttribute('Id')] = rels[i].getAttribute('Target');
+    }
+    var sheets = [];
+    for (var k = 0; k < sheetEls.length; k++){
+      var rid = sheetEls[k].getAttribute('r:id');
+      var target = (rid && relMap[rid]) || ('worksheets/sheet' + (k + 1) + '.xml');
+      target = target.replace(/^\//, '').replace(/^xl\//, '');
+      sheets.push({ name: sheetEls[k].getAttribute('name'), path: 'xl/' + target });
+    }
+    return sheets;
+  }
+
+  async function loadXLSXFile(buf){
+    var zip = await unzip(buf);
+    var workbookXml = await zip.readEntry('xl/workbook.xml');
+    var relsXml = await zip.readEntry('xl/_rels/workbook.xml.rels');
+    var sharedStringsXml = await zip.readEntry('xl/sharedStrings.xml');
+    var stylesXml = await zip.readEntry('xl/styles.xml');
+    var sharedStrings = parseSharedStrings(sharedStringsXml);
+    var styles = parseStyles(stylesXml);
+    var sheets = workbookXml ? parseWorkbookSheets(workbookXml, relsXml) : [];
+    if (!sheets.length) sheets = [{ name: 'Sheet1', path: 'xl/worksheets/sheet1.xml' }];
+    var sheetXml = await zip.readEntry(sheets[0].path);
+    if (!sheetXml) sheetXml = await zip.readEntry('xl/worksheets/sheet1.xml');
+    if (!sheetXml) throw new Error('シートのデータを見つけられませんでした');
+    var table = parseSheetXML(sheetXml, sharedStrings, styles);
+    return { table: table, sheets: sheets };
+  }
+
+  function populateColumnSelects(){
+    var groupSel = $('groupByCol'), breakSel = $('breakdownCol'), aggSel = $('aggCol');
+    groupSel.innerHTML = ''; breakSel.innerHTML = '<option value="">なし</option>'; aggSel.innerHTML = '';
+    state.headers.forEach(function(h){
+      var o1 = document.createElement('option'); o1.value = h; o1.textContent = h + typeBadge(h); groupSel.appendChild(o1);
+      var o2 = document.createElement('option'); o2.value = h; o2.textContent = h + typeBadge(h); breakSel.appendChild(o2);
+    });
+    state.headers.filter(function(h){ return state.colTypes[h] === 'number'; }).forEach(function(h){
+      var o = document.createElement('option'); o.value = h; o.textContent = h; aggSel.appendChild(o);
+    });
+    if (!aggSel.options.length) { var o = document.createElement('option'); o.value=''; o.textContent='（数値項目なし）'; aggSel.appendChild(o); }
+    toggleAggColVisibility();
+  }
+  function typeBadge(h){
+    var t = state.colTypes[h];
+    return t==='number' ? '（数値）' : t==='date' ? '（日付）' : t==='category' ? '（区分）' : '';
+  }
+  $('aggFunc').addEventListener('change', toggleAggColVisibility);
+  function toggleAggColVisibility(){
+    var f = $('aggFunc').value;
+    $('aggColWrap').style.display = (f === 'count') ? 'none' : '';
+  }
+
+  // ---------- Filters ----------
+  $('addFilterBtn').addEventListener('click', function(){
+    state.filters.push({ id: Date.now()+Math.random(), col: state.headers[0], op:'eq', val:'' });
+    renderFilterList();
+    renderAll();
+  });
+  $('quickSearch').addEventListener('input', function(e){
+    state.quickSearch = e.target.value.trim().toLowerCase();
+    renderAll();
+  });
+  $('filterLogicSelect').addEventListener('change', function(e){
+    state.filterLogic = e.target.value;
+    renderAll();
+  });
+
+  var OPERATORS = [
+    { value: 'eq',          label: '一致する' },
+    { value: 'neq',         label: '一致しない' },
+    { value: 'contains',    label: '含む' },
+    { value: 'notcontains', label: '含まない' },
+    { value: 'lt',          label: '＜' },
+    { value: 'gt',          label: '＞' }
+  ];
+
+  function renderFilterList(){
+    var wrap = $('filterList');
+    wrap.innerHTML = '';
+    state.filters.forEach(function(f){
+      wrap.appendChild(buildFilterRow(f));
+    });
+    $('filterLogicWrap').style.display = state.filters.length >= 2 ? '' : 'none';
+  }
+
+  function buildFilterRow(f){
+    var type = state.colTypes[f.col] || 'text';
+    var div = document.createElement('div');
+    div.className = 'filter-row';
+
+    var colField = document.createElement('div'); colField.className='field'; colField.style.flex='1 1 180px';
+    var colLabel = document.createElement('label'); colLabel.className='field-label'; colLabel.textContent='項目';
+    var colSelect = document.createElement('select');
+    state.headers.forEach(function(h){ var o=document.createElement('option'); o.value=h; o.textContent=h+typeBadge(h); if(h===f.col)o.selected=true; colSelect.appendChild(o); });
+    colSelect.addEventListener('change', function(){ f.col = colSelect.value; f.val=''; renderFilterList(); renderAll(); });
+    colField.appendChild(colLabel); colField.appendChild(colSelect);
+    div.appendChild(colField);
+
+    var opField = document.createElement('div'); opField.className='field'; opField.style.flex='0 1 140px'; opField.style.minWidth='120px';
+    var opLabel = document.createElement('label'); opLabel.className='field-label'; opLabel.textContent='条件';
+    var opSelect = document.createElement('select');
+    OPERATORS.forEach(function(o){ var opt=document.createElement('option'); opt.value=o.value; opt.textContent=o.label; if(o.value===f.op) opt.selected=true; opSelect.appendChild(opt); });
+    opSelect.addEventListener('change', function(){ f.op = opSelect.value; renderAll(); });
+    opField.appendChild(opLabel); opField.appendChild(opSelect);
+    div.appendChild(opField);
+
+    var valueArea = document.createElement('div'); valueArea.className='field'; valueArea.style.flex = '1 1 200px';
+    var valLabel = document.createElement('label'); valLabel.className='field-label'; valLabel.textContent='値';
+    var valInput = document.createElement('input'); valInput.type='text'; valInput.value=f.val; valInput.style.width='100%';
+    valInput.placeholder = type==='date' ? '例：2026-01-01' : type==='number' ? '例：1000' : '値を入力';
+    valInput.addEventListener('input', function(){ f.val = valInput.value; renderAll(); });
+    valueArea.appendChild(valLabel); valueArea.appendChild(valInput);
+    div.appendChild(valueArea);
+
+    var rm = document.createElement('button'); rm.className='remove-btn'; rm.type='button'; rm.textContent='✕'; rm.title='この条件を削除';
+    rm.addEventListener('click', function(){ state.filters = state.filters.filter(function(x){return x.id!==f.id;}); renderFilterList(); renderAll(); });
+    div.appendChild(rm);
+
+    return div;
+  }
+
+  function evaluateCondition(row, f){
+    if (f.val === '' || f.val == null) return true; // condition not filled in yet: treat as inactive
+    var type = state.colTypes[f.col] || 'text';
+    var raw = row[f.col];
+    var rawStr = String(raw == null ? '' : raw);
+    var valStr = String(f.val);
+
+    switch (f.op) {
+      case 'eq':
+        if (type === 'number') return looksNumber(raw) && looksNumber(f.val) && toNumber(raw) === toNumber(f.val);
+        if (type === 'date') return looksDate(raw) && looksDate(f.val) && Date.parse(raw) === Date.parse(f.val);
+        return rawStr.toLowerCase() === valStr.toLowerCase();
+      case 'neq':
+        if (type === 'number') return !(looksNumber(raw) && looksNumber(f.val) && toNumber(raw) === toNumber(f.val));
+        if (type === 'date') return !(looksDate(raw) && looksDate(f.val) && Date.parse(raw) === Date.parse(f.val));
+        return rawStr.toLowerCase() !== valStr.toLowerCase();
+      case 'contains':
+        return rawStr.toLowerCase().indexOf(valStr.toLowerCase()) !== -1;
+      case 'notcontains':
+        return rawStr.toLowerCase().indexOf(valStr.toLowerCase()) === -1;
+      case 'lt':
+        if (type === 'number') return looksNumber(raw) && looksNumber(f.val) && toNumber(raw) < toNumber(f.val);
+        if (type === 'date') return looksDate(raw) && looksDate(f.val) && Date.parse(raw) < Date.parse(f.val);
+        return rawStr.localeCompare(valStr, 'ja') < 0;
+      case 'gt':
+        if (type === 'number') return looksNumber(raw) && looksNumber(f.val) && toNumber(raw) > toNumber(f.val);
+        if (type === 'date') return looksDate(raw) && looksDate(f.val) && Date.parse(raw) > Date.parse(f.val);
+        return rawStr.localeCompare(valStr, 'ja') > 0;
+      default:
+        return true;
+    }
+  }
+
+  function rowMatchesFilters(row){
+    var active = state.filters.filter(function(f){ return f.val !== '' && f.val != null; });
+    if (active.length) {
+      var results = active.map(function(f){ return evaluateCondition(row, f); });
+      var pass = (state.filterLogic === 'OR') ? results.some(function(r){ return r; }) : results.every(function(r){ return r; });
+      if (!pass) return false;
+    }
+    if (state.quickSearch) {
+      var found = false;
+      for (var h in row) { if (String(row[h]||'').toLowerCase().indexOf(state.quickSearch) !== -1) { found = true; break; } }
+      if (!found) return false;
+    }
+    return true;
+  }
+
+  function getFilteredRows(){
+    return state.rows.filter(rowMatchesFilters);
+  }
+
+  // ---------- Rendering: stats, table, aggregation ----------
+  function renderAll(){
+    var filtered = getFilteredRows();
+    renderStats(filtered);
+    renderTable(filtered);
+    $('filterSummary').textContent = filtered.length.toLocaleString() + ' / ' + state.rows.length.toLocaleString() + ' 行が条件に一致';
+  }
+
+  function renderStats(filtered){
+    var wrap = $('statRow');
+    wrap.innerHTML = '';
+    var tiles = [
+      {label:'全体の行数', value: state.rows.length.toLocaleString()},
+      {label:'絞り込み後の行数', value: filtered.length.toLocaleString()},
+      {label:'列数', value: state.headers.length.toLocaleString()}
+    ];
+    // Try to find a likely "primary key-ish" categorical column for unique count (e.g. names/company)
+    var candidate = state.headers.find(function(h){
+      return /名前|会社|取引先|顧客|Account|Name|Company/i.test(h);
+    });
+    if (candidate) {
+      var uniq = {};
+      filtered.forEach(function(r){ if (r[candidate]) uniq[r[candidate]] = 1; });
+      tiles.push({label: candidate + ' のユニーク数', value: Object.keys(uniq).length.toLocaleString()});
+    }
+    tiles.forEach(function(t){
+      var div = document.createElement('div'); div.className='stat-tile';
+      div.innerHTML = '<div class="label"></div><div class="value"></div>';
+      div.querySelector('.label').textContent = t.label;
+      div.querySelector('.value').textContent = t.value;
+      wrap.appendChild(div);
+    });
+  }
+
+  function renderTable(filtered){
+    $('tableCountLabel').textContent = '（' + filtered.length.toLocaleString() + ' 行中 ' + Math.min(state.shownRows, filtered.length).toLocaleString() + ' 行を表示）';
+    var sorted = filtered;
+    if (state.sortCol) {
+      var col = state.sortCol, dir = state.sortDir, type = state.colTypes[col];
+      sorted = filtered.slice().sort(function(a,b){
+        var va = a[col], vb = b[col];
+        var cmp;
+        if (type === 'number') cmp = (toNumber(va)||0) - (toNumber(vb)||0);
+        else if (type === 'date') cmp = (Date.parse(va)||0) - (Date.parse(vb)||0);
+        else cmp = String(va||'').localeCompare(String(vb||''), 'ja');
+        return cmp * dir;
+      });
+    }
+    var slice = sorted.slice(0, state.shownRows);
+    var container = $('tableScroll');
+    container.innerHTML = '';
+    if (!slice.length) {
+      container.innerHTML = '<div class="empty-state">条件に一致するデータがありません</div>';
+      $('loadMoreBtn').style.display = 'none';
+      return;
+    }
+    var table = document.createElement('table'); table.className='data-table';
+    var thead = document.createElement('thead'); var trh = document.createElement('tr');
+    state.headers.forEach(function(h){
+      var th = document.createElement('th');
+      th.textContent = h + (state.sortCol===h ? (state.sortDir===1?' ▲':' ▼') : '');
+      th.addEventListener('click', function(){
+        if (state.sortCol === h) state.sortDir *= -1; else { state.sortCol = h; state.sortDir = 1; }
+        renderTable(getFilteredRows());
+      });
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh); table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    slice.forEach(function(r){
+      var tr = document.createElement('tr');
+      state.headers.forEach(function(h){
+        var td = document.createElement('td');
+        td.textContent = r[h] != null ? r[h] : '';
+        td.title = td.textContent;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+    $('loadMoreBtn').style.display = (state.shownRows < filtered.length) ? '' : 'none';
+  }
+  $('loadMoreBtn').addEventListener('click', function(){
+    state.shownRows += state.pageSize;
+    renderTable(getFilteredRows());
+  });
+
+  // ---------- Aggregation ----------
+  $('runAggBtn').addEventListener('click', function(){
+    var groupCol = $('groupByCol').value;
+    var breakCol = $('breakdownCol').value;
+    var func = $('aggFunc').value;
+    var valCol = $('aggCol').value;
+    var filtered = getFilteredRows();
+    if (breakCol) {
+      state.aggResult = { mode:'pivot', groupCol:groupCol, breakCol:breakCol, func:func, valCol:valCol,
+        data: computePivot(filtered, groupCol, breakCol, func, valCol) };
+    } else {
+      state.aggResult = { mode:'single', groupCol:groupCol, func:func, valCol:valCol,
+        data: computeGroup(filtered, groupCol, func, valCol) };
+    }
+    renderAggResult();
+  });
+
+  function aggregate(values, func, valCol){
+    if (func === 'count') return values.length;
+    if (func === 'uniq') { var s={}; values.forEach(function(r){ s[r[valCol]] = 1; }); return Object.keys(s).length; }
+    var nums = values.map(function(r){ return toNumber(r[valCol]); }).filter(function(n){ return !isNaN(n); });
+    if (!nums.length) return 0;
+    if (func === 'sum') return nums.reduce(function(a,b){return a+b;},0);
+    if (func === 'avg') return nums.reduce(function(a,b){return a+b;},0) / nums.length;
+    if (func === 'max') return Math.max.apply(null, nums);
+    if (func === 'min') return Math.min.apply(null, nums);
+    return 0;
+  }
+
+  function computeGroup(rows, groupCol, func, valCol){
+    var buckets = {};
+    rows.forEach(function(r){
+      var k = r[groupCol] === '' || r[groupCol] == null ? '（空白）' : r[groupCol];
+      (buckets[k] = buckets[k] || []).push(r);
+    });
+    var out = Object.keys(buckets).map(function(k){
+      return { key: k, value: aggregate(buckets[k], func, valCol), n: buckets[k].length };
+    });
+    out.sort(function(a,b){ return b.value - a.value; });
+    return out;
+  }
+
+  function computePivot(rows, groupCol, breakCol, func, valCol){
+    // top group rows (by count) capped at 20 + Other, top breakdown cols capped at 8 + Other
+    var groupTotals = computeGroup(rows, groupCol, 'count', null);
+    var topGroups = groupTotals.slice(0, 20).map(function(g){return g.key;});
+    var hasMoreGroups = groupTotals.length > 20;
+
+    var breakTotals = computeGroup(rows, breakCol, 'count', null);
+    var topBreaks = breakTotals.slice(0, 8).map(function(g){return g.key;});
+    var hasMoreBreaks = breakTotals.length > 8;
+
+    var cellBuckets = {};
+    rows.forEach(function(r){
+      var gk = r[groupCol] === '' || r[groupCol]==null ? '（空白）' : r[groupCol];
+      var bk = r[breakCol] === '' || r[breakCol]==null ? '（空白）' : r[breakCol];
+      var g = topGroups.indexOf(gk) === -1 ? (hasMoreGroups ? 'その他' : gk) : gk;
+      var b = topBreaks.indexOf(bk) === -1 ? (hasMoreBreaks ? 'その他' : bk) : bk;
+      var key = g + '' + b;
+      (cellBuckets[key] = cellBuckets[key] || []).push(r);
+    });
+    var groupKeys = topGroups.slice();
+    if (hasMoreGroups) groupKeys.push('その他');
+    var breakKeys = topBreaks.slice();
+    if (hasMoreBreaks) breakKeys.push('その他');
+
+    var matrix = groupKeys.map(function(g){
+      var rowVals = breakKeys.map(function(b){
+        var bucket = cellBuckets[g+''+b] || [];
+        return aggregate(bucket, func, valCol);
+      });
+      return { key: g, values: rowVals, total: rowVals.reduce(function(a,b){return a+b;},0) };
+    });
+    matrix.sort(function(a,b){ return b.total - a.total; });
+    return { groupKeys: groupKeys, breakKeys: breakKeys, matrix: matrix };
+  }
+
+  function renderAggResult(){
+    var wrap = $('aggResults');
+    wrap.innerHTML = '';
+    if (!state.aggResult) { wrap.innerHTML = '<div class="empty-state">「集計する」を押してください</div>'; return; }
+
+    if (state.aggResult.mode === 'single') {
+      var data = state.aggResult.data;
+      if (!data.length) { wrap.innerHTML = '<div class="empty-state">集計できるデータがありません</div>'; return; }
+      var max = Math.max.apply(null, data.map(function(d){return d.value;}));
+      var top = data.slice(0, 15);
+      var restSum = data.slice(15).reduce(function(a,b){return a+b.value;},0);
+      var chartRows = top.slice();
+      if (data.length > 15) chartRows.push({key:'その他（'+(data.length-15)+'項目）', value: restSum});
+
+      var chartDiv = document.createElement('div'); chartDiv.className='bars';
+      chartRows.forEach(function(d){
+        var pct = max ? (d.value / Math.max(max, chartRows[0] ? chartRows[0].value : max)) : 0;
+        var row = document.createElement('div'); row.className='bar-row';
+        var label = document.createElement('div'); label.className='bar-label'; label.textContent = d.key; label.title = d.key;
+        var track = document.createElement('div'); track.className='bar-track';
+        var fill = document.createElement('div'); fill.className='bar-fill'; fill.tabIndex=0;
+        var w = max ? Math.max(4, (d.value/max)*100) : 0;
+        fill.style.width = w + '%';
+        var valLabel = document.createElement('div'); valLabel.className='bar-value'; valLabel.textContent = formatNum(d.value);
+        var tipText = d.key + ': ' + formatNum(d.value);
+        fill.setAttribute('aria-label', tipText);
+        attachTooltip(fill, function(){ return tipText; });
+        track.appendChild(fill);
+        row.appendChild(label); row.appendChild(track); row.appendChild(valLabel);
+        chartDiv.appendChild(row);
+      });
+      wrap.appendChild(chartDiv);
+
+      var tbl = document.createElement('table'); tbl.className='data-table'; tbl.style.marginTop='16px';
+      tbl.innerHTML = '<thead><tr><th>'+escapeHtml(state.aggResult.groupCol)+'</th><th>値</th><th>件数</th></tr></thead>';
+      var tb = document.createElement('tbody');
+      data.forEach(function(d){
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td></td><td></td><td></td>';
+        tr.children[0].textContent = d.key;
+        tr.children[1].textContent = formatNum(d.value);
+        tr.children[2].textContent = d.n;
+        tb.appendChild(tr);
+      });
+      tbl.appendChild(tb);
+      var scrollWrap = document.createElement('div'); scrollWrap.className='table-scroll'; scrollWrap.style.maxHeight='300px';
+      scrollWrap.appendChild(tbl);
+      wrap.appendChild(scrollWrap);
+
+    } else {
+      var p = state.aggResult.data;
+      if (!p.matrix.length) { wrap.innerHTML = '<div class="empty-state">集計できるデータがありません</div>'; return; }
+      var flatMax = 0;
+      p.matrix.forEach(function(row){ row.values.forEach(function(v){ if (v>flatMax) flatMax=v; }); });
+      var tbl = document.createElement('table'); tbl.className='data-table pivot-table';
+      var thead = document.createElement('thead'); var trh = document.createElement('tr');
+      trh.innerHTML = '<th>'+escapeHtml(state.aggResult.groupCol)+' ＼ '+escapeHtml(state.aggResult.breakCol)+'</th>';
+      p.breakKeys.forEach(function(b){ var th=document.createElement('th'); th.textContent=b; th.title=b; trh.appendChild(th); });
+      var thTotal = document.createElement('th'); thTotal.textContent='合計'; trh.appendChild(thTotal);
+      thead.appendChild(trh); tbl.appendChild(thead);
+      var tbody = document.createElement('tbody');
+      p.matrix.forEach(function(row){
+        var tr = document.createElement('tr');
+        var th = document.createElement('td'); th.textContent = row.key; th.title = row.key; th.style.fontWeight='600';
+        tr.appendChild(th);
+        row.values.forEach(function(v){
+          var td = document.createElement('td'); td.className='cell'; td.textContent = formatNum(v);
+          if (flatMax > 0) {
+            var ratio = v / flatMax;
+            td.style.background = seqShade(ratio);
+          }
+          tr.appendChild(td);
+        });
+        var tdTotal = document.createElement('td'); tdTotal.className='cell'; tdTotal.style.fontWeight='600'; tdTotal.textContent = formatNum(row.total);
+        tr.appendChild(tdTotal);
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      var scrollWrap = document.createElement('div'); scrollWrap.className='table-scroll';
+      scrollWrap.appendChild(tbl);
+      wrap.appendChild(scrollWrap);
+    }
+  }
+
+  function seqShade(ratio){
+    // very light -> series-1 blue, using alpha over surface to keep it theme-aware
+    var alpha = Math.max(0.06, Math.min(0.85, ratio));
+    var rootStyles = getComputedStyle(document.querySelector('.viz-root'));
+    var c = rootStyles.getPropertyValue('--series-1').trim();
+    return hexToRgba(c, alpha);
+  }
+  function hexToRgba(hex, alpha){
+    hex = hex.replace('#','');
+    var r = parseInt(hex.substring(0,2),16), g = parseInt(hex.substring(2,4),16), b = parseInt(hex.substring(4,6),16);
+    return 'rgba('+r+','+g+','+b+','+alpha+')';
+  }
+
+  function formatNum(n){
+    if (typeof n !== 'number' || isNaN(n)) return '0';
+    if (Math.abs(n - Math.round(n)) < 1e-9) return Math.round(n).toLocaleString();
+    return n.toLocaleString(undefined, {maximumFractionDigits:2});
+  }
+  function escapeHtml(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+  // Tooltip
+  var tooltipEl = null;
+  function attachTooltip(el, getText){
+    el.addEventListener('mouseenter', function(e){ showTip(getText(), e.clientX, e.clientY); });
+    el.addEventListener('mousemove', function(e){ moveTip(e.clientX, e.clientY); });
+    el.addEventListener('mouseleave', hideTip);
+    el.addEventListener('focus', function(){ var r = el.getBoundingClientRect(); showTip(getText(), r.left+r.width/2, r.top); });
+    el.addEventListener('blur', hideTip);
+  }
+  function showTip(text, x, y){
+    hideTip();
+    tooltipEl = document.createElement('div'); tooltipEl.className='chart-tooltip'; tooltipEl.textContent = text;
+    document.body.appendChild(tooltipEl);
+    moveTip(x,y);
+  }
+  function moveTip(x,y){ if (tooltipEl){ tooltipEl.style.left = x+'px'; tooltipEl.style.top = y+'px'; } }
+  function hideTip(){ if (tooltipEl){ tooltipEl.remove(); tooltipEl=null; } }
+
+  // ---------- Export ----------
+  function toCSV(headers, rows){
+    var lines = [headers.map(csvEscape).join(',')];
+    rows.forEach(function(r){ lines.push(headers.map(function(h){ return csvEscape(r[h]); }).join(',')); });
+    return '﻿' + lines.join('\r\n');
+  }
+  function csvEscape(v){
+    v = v == null ? '' : String(v);
+    if (/[",\r\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
+    return v;
+  }
+  function downloadCSV(content, filename){
+    var blob = new Blob([content], {type:'text/csv;charset=utf-8;'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  $('exportFilteredBtn').addEventListener('click', function(){
+    var filtered = getFilteredRows();
+    downloadCSV(toCSV(state.headers, filtered), 'filtered_data.csv');
+  });
+  $('exportAggBtn').addEventListener('click', function(){
+    if (!state.aggResult) { alert('先に集計を実行してください'); return; }
+    if (state.aggResult.mode === 'single') {
+      var headers = [state.aggResult.groupCol, '値', '件数'];
+      var rows = state.aggResult.data.map(function(d){ var o={}; o[state.aggResult.groupCol]=d.key; o['値']=d.value; o['件数']=d.n; return o; });
+      downloadCSV(toCSV(headers, rows), 'aggregation_result.csv');
+    } else {
+      var p = state.aggResult.data;
+      var headers2 = [state.aggResult.groupCol].concat(p.breakKeys).concat(['合計']);
+      var rows2 = p.matrix.map(function(row){
+        var o = {}; o[state.aggResult.groupCol] = row.key;
+        p.breakKeys.forEach(function(b, i){ o[b] = row.values[i]; });
+        o['合計'] = row.total;
+        return o;
+      });
+      downloadCSV(toCSV(headers2, rows2), 'aggregation_pivot.csv');
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
