@@ -191,6 +191,20 @@
 
     <div class="card">
       <h2>4. 集計</h2>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <span style="color:var(--text-muted); font-size:12px;">集計の対象だけをさらに条件で絞り込めます（③の絞り込みとは別に、集計にのみ適用されます）</span>
+        <button class="btn small" id="aggAddFilterBtn" type="button" style="margin-left:auto;">＋ 集計条件を追加</button>
+      </div>
+      <div class="toolbar" id="aggFilterLogicWrap" style="margin-bottom:10px; display:none;">
+        <div>
+          <label class="field-label">条件の組み合わせ</label>
+          <select id="aggFilterLogicSelect">
+            <option value="AND">すべての条件に一致（AND）</option>
+            <option value="OR">いずれかの条件に一致（OR）</option>
+          </select>
+        </div>
+      </div>
+      <div id="aggFilterList" style="margin-bottom:10px;"></div>
       <div class="toolbar">
         <div>
           <label class="field-label">表示する項目（行）</label>
@@ -246,6 +260,7 @@
   var state = {
     headers: [], rows: [], colTypes: {}, colUniques: {},
     filters: [], quickSearch: "", filterLogic: "AND",
+    aggFilters: [], aggFilterLogic: "AND",
     sortCol: null, sortDir: 1,
     pageSize: 50, shownRows: 50,
     rawBuffer: null,
@@ -379,12 +394,14 @@
     if (state.rawBuffer && state.fileType === 'csv') loadFromBuffer(state.rawBuffer, state.fileName);
   });
   $('resetBtn').addEventListener('click', function(){
-    state = { headers:[], rows:[], colTypes:{}, colUniques:{}, filters:[], quickSearch:'', filterLogic:'AND', sortCol:null, sortDir:1, pageSize:50, shownRows:50, rawBuffer:null, aggResult:null, fileType:null };
+    state = { headers:[], rows:[], colTypes:{}, colUniques:{}, filters:[], quickSearch:'', filterLogic:'AND', aggFilters:[], aggFilterLogic:'AND', sortCol:null, sortDir:1, pageSize:50, shownRows:50, rawBuffer:null, aggResult:null, fileType:null };
     $('appBody').classList.add('hidden');
     $('fileMeta').textContent = '';
     $('encodingWrap').style.display = '';
     $('filterLogicSelect').value = 'AND';
     $('filterLogicWrap').style.display = 'none';
+    $('aggFilterLogicSelect').value = 'AND';
+    $('aggFilterLogicWrap').style.display = 'none';
     fileInput.value = '';
   });
 
@@ -456,9 +473,13 @@
     state.filters = [];
     state.quickSearch = '';
     state.filterLogic = 'AND';
+    state.aggFilters = [];
+    state.aggFilterLogic = 'AND';
     $('quickSearch').value = '';
     $('filterLogicSelect').value = 'AND';
     $('filterLogicWrap').style.display = 'none';
+    $('aggFilterLogicSelect').value = 'AND';
+    $('aggFilterLogicWrap').style.display = 'none';
     state.shownRows = state.pageSize;
 
     $('fileMeta').textContent = name + '　/　' + dataRows.length.toLocaleString() + ' 行　/　' + headers.length + ' 列';
@@ -466,6 +487,7 @@
 
     populateColumnSelects();
     renderFilterList();
+    renderAggFilterList();
     renderAll();
   }
 
@@ -770,6 +792,13 @@
     state.filterLogic = e.target.value;
     renderAll();
   });
+  $('aggAddFilterBtn').addEventListener('click', function(){
+    state.aggFilters.push({ id: Date.now()+Math.random(), col: state.headers[0], op:'eq', val:'' });
+    renderAggFilterList();
+  });
+  $('aggFilterLogicSelect').addEventListener('change', function(e){
+    state.aggFilterLogic = e.target.value;
+  });
 
   var OPERATORS = [
     { value: 'eq',          label: '一致する' },
@@ -784,12 +813,29 @@
     var wrap = $('filterList');
     wrap.innerHTML = '';
     state.filters.forEach(function(f){
-      wrap.appendChild(buildFilterRow(f));
+      wrap.appendChild(buildFilterRow(f, {
+        onColChange: function(){ renderFilterList(); renderAll(); },
+        onChange: renderAll,
+        onRemove: function(){ state.filters = state.filters.filter(function(x){return x.id!==f.id;}); renderFilterList(); renderAll(); }
+      }));
     });
     $('filterLogicWrap').style.display = state.filters.length >= 2 ? '' : 'none';
   }
 
-  function buildFilterRow(f){
+  function renderAggFilterList(){
+    var wrap = $('aggFilterList');
+    wrap.innerHTML = '';
+    state.aggFilters.forEach(function(f){
+      wrap.appendChild(buildFilterRow(f, {
+        onColChange: function(){ renderAggFilterList(); },
+        onChange: function(){ /* applied next time 集計する is pressed */ },
+        onRemove: function(){ state.aggFilters = state.aggFilters.filter(function(x){return x.id!==f.id;}); renderAggFilterList(); }
+      }));
+    });
+    $('aggFilterLogicWrap').style.display = state.aggFilters.length >= 2 ? '' : 'none';
+  }
+
+  function buildFilterRow(f, cb){
     var type = state.colTypes[f.col] || 'text';
     var div = document.createElement('div');
     div.className = 'filter-row';
@@ -798,7 +844,7 @@
     var colLabel = document.createElement('label'); colLabel.className='field-label'; colLabel.textContent='項目';
     var colSelect = document.createElement('select');
     state.headers.forEach(function(h){ var o=document.createElement('option'); o.value=h; o.textContent=h+typeBadge(h); if(h===f.col)o.selected=true; colSelect.appendChild(o); });
-    colSelect.addEventListener('change', function(){ f.col = colSelect.value; f.val=''; renderFilterList(); renderAll(); });
+    colSelect.addEventListener('change', function(){ f.col = colSelect.value; f.val=''; cb.onColChange(); });
     colField.appendChild(colLabel); colField.appendChild(colSelect);
     div.appendChild(colField);
 
@@ -806,7 +852,7 @@
     var opLabel = document.createElement('label'); opLabel.className='field-label'; opLabel.textContent='条件';
     var opSelect = document.createElement('select');
     OPERATORS.forEach(function(o){ var opt=document.createElement('option'); opt.value=o.value; opt.textContent=o.label; if(o.value===f.op) opt.selected=true; opSelect.appendChild(opt); });
-    opSelect.addEventListener('change', function(){ f.op = opSelect.value; renderAll(); });
+    opSelect.addEventListener('change', function(){ f.op = opSelect.value; cb.onChange(); });
     opField.appendChild(opLabel); opField.appendChild(opSelect);
     div.appendChild(opField);
 
@@ -814,12 +860,12 @@
     var valLabel = document.createElement('label'); valLabel.className='field-label'; valLabel.textContent='値';
     var valInput = document.createElement('input'); valInput.type='text'; valInput.value=f.val; valInput.style.width='100%';
     valInput.placeholder = type==='date' ? '例：2026-01-01' : type==='number' ? '例：1000' : '値を入力';
-    valInput.addEventListener('input', function(){ f.val = valInput.value; renderAll(); });
+    valInput.addEventListener('input', function(){ f.val = valInput.value; cb.onChange(); });
     valueArea.appendChild(valLabel); valueArea.appendChild(valInput);
     div.appendChild(valueArea);
 
     var rm = document.createElement('button'); rm.className='remove-btn'; rm.type='button'; rm.textContent='✕'; rm.title='この条件を削除';
-    rm.addEventListener('click', function(){ state.filters = state.filters.filter(function(x){return x.id!==f.id;}); renderFilterList(); renderAll(); });
+    rm.addEventListener('click', cb.onRemove);
     div.appendChild(rm);
 
     return div;
@@ -858,13 +904,15 @@
     }
   }
 
+  function rowMatchesConditions(row, filters, logic){
+    var active = filters.filter(function(f){ return f.val !== '' && f.val != null; });
+    if (!active.length) return true;
+    var results = active.map(function(f){ return evaluateCondition(row, f); });
+    return (logic === 'OR') ? results.some(function(r){ return r; }) : results.every(function(r){ return r; });
+  }
+
   function rowMatchesFilters(row){
-    var active = state.filters.filter(function(f){ return f.val !== '' && f.val != null; });
-    if (active.length) {
-      var results = active.map(function(f){ return evaluateCondition(row, f); });
-      var pass = (state.filterLogic === 'OR') ? results.some(function(r){ return r; }) : results.every(function(r){ return r; });
-      if (!pass) return false;
-    }
+    if (!rowMatchesConditions(row, state.filters, state.filterLogic)) return false;
     if (state.quickSearch) {
       var found = false;
       for (var h in row) { if (String(row[h]||'').toLowerCase().indexOf(state.quickSearch) !== -1) { found = true; break; } }
@@ -971,7 +1019,7 @@
     var breakCol = $('breakdownCol').value;
     var func = $('aggFunc').value;
     var valCol = $('aggCol').value;
-    var filtered = getFilteredRows();
+    var filtered = getFilteredRows().filter(function(row){ return rowMatchesConditions(row, state.aggFilters, state.aggFilterLogic); });
     if (breakCol) {
       state.aggResult = { mode:'pivot', groupCol:groupCol, breakCol:breakCol, func:func, valCol:valCol,
         data: computePivot(filtered, groupCol, breakCol, func, valCol) };
